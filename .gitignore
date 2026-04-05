@@ -1,0 +1,61 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# ── Virtual environments ───────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# ── Secrets ───────────────────────────────────────────────
+backend/.env
+
+# ── Generated model artefacts (large binary, regenerate via train.py) ──────
+backend/models.pkl
+
+# ── Dataset files (large, download from Kaggle) ───────────
+data/city_day.csv
+data/city_hour.csv
+
+# ── Node / React ──────────────────────────────────────────
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# ── OS / Editor ───────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Jupyter ──────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Misc ─────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
