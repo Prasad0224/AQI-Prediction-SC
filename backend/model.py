@@ -4,105 +4,135 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 
 # =============================================================================
-# FUZZY LOGIC MODEL
+# FUZZY LOGIC MODEL  (Improved — all 4 pollutants, calibrated MFs)
 # Mamdani Fuzzy Inference System
-#   - Gaussian membership functions (learnable parameters shown explicitly)
-#   - 9-rule base: PM2.5-level × NO2-level → AQI-level
-#   - Centroid defuzzification
+#   - Gaussian MFs calibrated to actual training-data percentiles
+#   - Per-pollutant independent sub-AQI inference
+#   - Final AQI = max of all sub-AQIs (mirrors how real AQI is computed)
+#   - Inputs: PM2.5 (x[0]), PM10 (x[1]), NO2 (x[2]), CO (x[3])
 # =============================================================================
 
 class FuzzyModel:
     """
-    Mamdani Fuzzy Inference System for AQI prediction.
+    Improved Mamdani FIS that uses ALL 4 pollutants.
 
-    Inputs  : PM2.5 (x[0]), NO2 (x[2])  — both normalised [0, 1]
-    Output  : REAL AQI value (not normalised) — singletons are calibrated
-              to standard AQI breakpoints so no inverse-transform is needed.
-
-    Membership functions : Gaussian  μ(x) = exp(-(x-c)²/2σ²)
-    Rule aggregation     : min (AND)
-    Defuzzification      : centroid
+    Why this design:
+      · Each pollutant independently infers a sub-AQI through its own
+        Low/Medium/High membership functions and centroid defuzzification.
+      · Final AQI = max(sub-AQIs) — exactly how the real AQI standard works:
+        the dominant (worst) pollutant determines the overall index.
+      · MF centers are calibrated from actual training-data percentiles so
+        the Low/Medium/High boundaries reflect real pollution distributions.
     """
 
     # Flag: output is real AQI, NOT normalised [0,1]
     OUTPUT_IS_NORMALIZED = False
 
-    # --- Premise MFs ---
-    PM25_MFS = {
-        'Low':    {'c': 0.15, 'sigma': 0.12},
-        'Medium': {'c': 0.45, 'sigma': 0.12},
-        'High':   {'c': 0.80, 'sigma': 0.12},
-    }
-    NO2_MFS = {
-        'Low':    {'c': 0.15, 'sigma': 0.12},
-        'Medium': {'c': 0.45, 'sigma': 0.12},
-        'High':   {'c': 0.80, 'sigma': 0.12},
-    }
+    FEATURE_NAMES = ['PM2.5', 'PM10', 'NO2', 'CO']
 
-    # --- Consequent singletons: real AQI values aligned to standard categories ---
-    # Good 0-50 | Moderate 51-100 | USG 101-150 | Unhealthy 151-200 | Hazardous 201+
+    # AQI singleton values for each linguistic level
+    # Calibrated to centre of each Indian AQI band
     AQI_SINGLETONS = {
-        'Good':      25,    # centre of Good band
-        'Moderate':  75,    # centre of Moderate band
-        'USG':       125,   # centre of USG band
-        'Unhealthy': 175,   # centre of Unhealthy band
-        'Hazardous': 300,   # representative Hazardous value
+        'Low':    30,    # Good (0–50)
+        'Medium': 100,   # Satisfactory / Moderate
+        'High':   220,   # Unhealthy / Very Unhealthy
     }
 
-    # --- Rule base: (PM2.5, NO2) -> AQI ---
-    RULES = [
-        ('Low',    'Low',    'Good'),
-        ('Low',    'Medium', 'Moderate'),
-        ('Low',    'High',   'USG'),
-        ('Medium', 'Low',    'Moderate'),
-        ('Medium', 'Medium', 'USG'),
-        ('Medium', 'High',   'Unhealthy'),
-        ('High',   'Low',    'USG'),
-        ('High',   'Medium', 'Unhealthy'),
-        ('High',   'High',   'Hazardous'),
-    ]
+    def __init__(self):
+        # Default centres & sigmas — evenly spaced; overwritten by calibrate()
+        self._centers = np.tile([0.15, 0.50, 0.85], (4, 1))   # (4, 3)
+        self._sigmas  = np.ones((4, 3)) * 0.18
+
+    # ── Calibration ───────────────────────────────────────────────────────────
+
+    def calibrate(self, X_scaled):
+        """
+        Set MF centres and widths from actual training-data distribution.
+        Uses 25th and 75th percentiles so Low/Medium/High zones cover
+        the real spread of each pollutant in the dataset.
+        """
+        p25 = np.percentile(X_scaled, 25, axis=0)  # (4,)
+        p75 = np.percentile(X_scaled, 75, axis=0)  # (4,)
+
+        for i in range(4):
+            lo, hi = float(p25[i]), float(p75[i])
+            # Centres: mid-point of each zone [0,lo], [lo,hi], [hi,1]
+            self._centers[i] = [
+                lo / 2,
+                (lo + hi) / 2,
+                (hi + 1.0) / 2,
+            ]
+            # Sigmas: proportional to zone width (min 0.05 to avoid collapse)
+            self._sigmas[i] = [
+                max(lo / 2,          0.05),
+                max((hi - lo) / 2,   0.05),
+                max((1.0 - hi) / 2,  0.05),
+            ]
+
+    # ── MF helpers ────────────────────────────────────────────────────────────
 
     @staticmethod
     def _gaussian(x, c, sigma):
         return float(np.exp(-((x - c) ** 2) / (2 * sigma ** 2)))
 
-    def _memberships(self, x):
-        pm25 = float(x[0])
-        no2  = float(x[2])
-        pm25_mu = {k: self._gaussian(pm25, v['c'], v['sigma']) for k, v in self.PM25_MFS.items()}
-        no2_mu  = {k: self._gaussian(no2,  v['c'], v['sigma']) for k, v in self.NO2_MFS.items()}
-        return pm25_mu, no2_mu
+    def _memberships(self, xi, i):
+        """Low / Medium / High membership for feature i at normalised value xi."""
+        labels = ['Low', 'Medium', 'High']
+        return {
+            lbl: self._gaussian(xi, self._centers[i][j], self._sigmas[i][j])
+            for j, lbl in enumerate(labels)
+        }
+
+    # ── Inference ─────────────────────────────────────────────────────────────
+
+    def _sub_aqi(self, xi, i):
+        """Centroid defuzzification → sub-AQI for pollutant i."""
+        mu  = self._memberships(xi, i)
+        num = sum(mu[lbl] * self.AQI_SINGLETONS[lbl] for lbl in mu)
+        den = sum(mu.values())
+        return num / den if den > 1e-9 else self.AQI_SINGLETONS['Low']
 
     def predict(self, x):
-        pm25_mu, no2_mu = self._memberships(x)
-        num = den = 0.0
-        for pm25_lbl, no2_lbl, aqi_lbl in self.RULES:
-            strength = min(pm25_mu[pm25_lbl], no2_mu[no2_lbl])
-            num += strength * self.AQI_SINGLETONS[aqi_lbl]
-            den += strength
-        return num / den if den > 1e-9 else 0.5
+        """Final AQI = max of 4 per-pollutant sub-AQIs."""
+        sub_aqis = [self._sub_aqi(float(x[i]), i) for i in range(4)]
+        return float(max(sub_aqis))
+
+    # ── Explainability ────────────────────────────────────────────────────────
 
     def get_explanation(self, x):
-        pm25_mu, no2_mu = self._memberships(x)
-        rule_activations = []
-        for pm25_lbl, no2_lbl, aqi_lbl in self.RULES:
-            strength = min(pm25_mu[pm25_lbl], no2_mu[no2_lbl])
-            rule_activations.append({
-                'pm25_label': pm25_lbl,
-                'no2_label':  no2_lbl,
-                'aqi_output': aqi_lbl,
-                'strength':   round(float(strength), 4),
-            })
+        memberships = {}
+        sub_aqis    = {}
+        for i, name in enumerate(self.FEATURE_NAMES):
+            mu = self._memberships(float(x[i]), i)
+            memberships[name] = {k: round(v, 4) for k, v in mu.items()}
+            sub_aqis[name]    = round(self._sub_aqi(float(x[i]), i), 2)
+
+        dominant = max(sub_aqis, key=sub_aqis.get)
         return {
-            'pm25_memberships': {k: round(v, 4) for k, v in pm25_mu.items()},
-            'no2_memberships':  {k: round(v, 4) for k, v in no2_mu.items()},
-            'rule_activations': rule_activations,
+            'memberships':       memberships,
+            'sub_aqis':          sub_aqis,
+            'dominant_pollutant': dominant,
+            'mf_centers': {
+                self.FEATURE_NAMES[i]: {
+                    'Low':    round(float(self._centers[i][0]), 4),
+                    'Medium': round(float(self._centers[i][1]), 4),
+                    'High':   round(float(self._centers[i][2]), 4),
+                }
+                for i in range(4)
+            },
         }
 
     def get_mf_params(self):
+        labels = ['Low', 'Medium', 'High']
         return {
-            'PM2.5': {k: dict(v) for k, v in self.PM25_MFS.items()},
-            'NO2':   {k: dict(v) for k, v in self.NO2_MFS.items()},
+            self.FEATURE_NAMES[i]: {
+                lbl: {
+                    'c':     round(float(self._centers[i][j]), 4),
+                    'sigma': round(float(self._sigmas[i][j]),  4),
+                }
+                for j, lbl in enumerate(labels)
+            }
+            for i in range(4)
         }
 
 

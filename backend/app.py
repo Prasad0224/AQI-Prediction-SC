@@ -108,12 +108,10 @@ def model_info():
 
     return jsonify({
         "fuzzy": {
-            "mf_params": fuzzy.get_mf_params(),
-            "n_rules":   len(fuzzy.RULES),
-            "rules": [
-                {"pm25": r[0], "no2": r[1], "aqi": r[2]}
-                for r in fuzzy.RULES
-            ],
+            "mf_params":  fuzzy.get_mf_params(),
+            "n_inputs":   4,
+            "design":     "Per-pollutant Mamdani sub-AQI, max aggregation",
+            "singletons": fuzzy.AQI_SINGLETONS,
         },
         "nn":    nn.get_info(),
         "anfis": anfis.get_info(),

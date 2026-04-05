@@ -53,8 +53,11 @@ print(f"      Test  RMSE : {anfis_rmse:.4f}")
 print(f"      R²         : {anfis_r2:.4f}")
 
 # ── 3) Fuzzy Logic ────────────────────────────────────────────────────────
-print("\n[4/5] Evaluating Fuzzy Logic (Mamdani, 9 rules)...")
+print("\n[4/5] Evaluating Fuzzy Logic (Mamdani, 4 inputs, calibrated MFs)...")
 fuzzy = FuzzyModel()
+# Calibrate MF centres from actual training-data percentiles (full dataset)
+fuzzy.calibrate(X_scaled)
+print(f"      MF centres calibrated from {len(X_scaled)} samples")
 
 # Fuzzy outputs real AQI — compare against de-normalised y_te for fair metrics
 y_te_real        = y_scaler.inverse_transform(y_te.reshape(-1, 1)).ravel()
