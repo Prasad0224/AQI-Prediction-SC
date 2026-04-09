@@ -84,7 +84,7 @@ export default function AQIGauge({ value, result, loading }) {
     ctx.fillStyle = '#8b949e';
     ctx.font = '12px Inter';
     ctx.fillText('AQI (avg)', cx, cy - R * 0.05);
-  }, [value]);
+  }, [value, loading]);
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>

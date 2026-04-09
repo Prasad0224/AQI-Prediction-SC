@@ -8,9 +8,9 @@
 
 ## 📸 Dashboard Preview
 
-| Predict Tab | Fuzzy Logic Tab |
-|---|---|
-| AQI gauge + 3-model comparison | Gaussian MF curves + 9-rule table |
+- **3 Soft Computing Models:** Compare **Mamdani Fuzzy Inference**, a **Deep Neural Network (MLP)**, and a **K-Means Clustered ANFIS** on the same inputs.
+- **Explainable Web Dashboard:** Built with React & Flask. Visualise Fuzzy Membership Functions, live Rule Activations, and human-readable reasoning dynamically.
+- **Live Data:** Fetch real-time pollutant levels from the World Air Quality Index (WAQI) API.
 
 | Neural Network Tab | ANFIS Tab |
 |---|---|
@@ -21,23 +21,21 @@
 ## 🧠 Soft Computing Models
 
 ### 1. 🔵 Fuzzy Logic (Mamdani FIS)
-- **Membership functions**: Gaussian MFs for PM2.5 and NO2 — Low / Medium / High
-- **Rule base**: 9 IF-THEN rules: `(PM2.5 level) AND (NO2 level) → AQI category`
-- **Defuzzification**: Centroid method
-- **Why fuzzy?** Handles linguistic uncertainty and imprecision in pollution data
+- **Design:** Expert-defined 5-tier fuzzy rules matching the Indian CPCB system (Good → Severe).
+- **Membership Functions:** Gaussian MFs dynamically calibrated to the 20th, 40th, 60th, and 80th percentiles of the training strict data.
+- **Inference:** Each pollutant computes a sub-AQI via centroid defuzzification. Final AQI is the `max()` of all sub-AQIs, perfectly mirroring the official mathematical standard.
 
 ### 2. 🟣 Neural Network (MLP)
-- **Architecture**: `4 → 64 → 32 → 1` (ReLU activation, Adam optimiser)
-- **Training**: Backpropagation with early stopping
-- **Inputs**: PM2.5, PM10, NO2, CO (normalised via MinMaxScaler)
-- **Why NN?** Learns complex non-linear relationships from data automatically
+- **Architecture**: `4 → 256 → 128 → 64 → 1`
+- **Why**: The robust architecture over-approximates the sharp, non-linear piece-wise boundaries of true AQI calculation.
+- **Details:** ReLU activation, Adam optimiser, trained purely on observed data with backpropagation.
 
 ### 3. 🟠 ANFIS (Adaptive Neuro-Fuzzy Inference System)
-- **Jang 1993 architecture**: 5 layers — Fuzzify → Fire → Normalise → Consequent → Output
+- **Design:** 5-layer network combining Fuzzy structural interpretability with NN data-driven learning.
+- **Initialization:** Features **K-Means clustering** to intelligently place rules onto dense mathematical physical data distributions instead of random guesses.
 - **Hybrid Learning**:
   - **Forward pass**: LSE solves Sugeno consequent params (`f = px + qy + r`) analytically
   - **Backward pass**: Gradient descent updates Gaussian MF centers (c) and widths (σ)
-- **Why ANFIS?** Combines fuzzy logic's interpretability with neural network's adaptability
 
 ---
 
@@ -51,12 +49,10 @@ AQI-Prediction/
 │   ├── train.py            # Training pipeline with metrics
 │   ├── preprocess.py       # Data cleaning & feature extraction
 │   ├── live_data.py        # Real-time WAQI API integration
-│   ├── time_series.py      # MLP-based 24h AQI forecaster
 │   ├── .env                # API key (not in git — see .env.example)
 │   └── .env.example        # Template for environment variables
 ├── data/
-│   ├── city_day.csv        # Daily AQI data — model training (Kaggle)
-│   └── city_hour.csv       # Hourly AQI data — time-series forecasting
+│   └── city_day.csv        # Daily AQI data — model training (Kaggle)
 ├── frontend/
 │   ├── public/
 │   │   └── index.html
@@ -70,8 +66,7 @@ AQI-Prediction/
 │           ├── ModelComparison.js  # Bar chart — 3 models side by side
 │           ├── FuzzyPanel.js       # MF curves, rule table, activations
 │           ├── NNPanel.js          # SVG architecture + training metrics
-│           ├── ANFISPanel.js       # 5-layer diagram + rule firing chart
-│           └── ForecastPanel.js    # 24h line chart forecast
+│           └── ANFISPanel.js       # 5-layer diagram + rule firing chart
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -85,7 +80,7 @@ AQI-Prediction/
 - Python 3.8+
 - Node.js 16+
 - Dataset from Kaggle: [India Air Quality Data](https://www.kaggle.com/datasets/rohanrao/air-quality-data-in-india)
-  - Place `city_day.csv` and `city_hour.csv` in the `data/` folder
+  - Place `city_day.csv` in the `data/` folder
 
 ### 1. Clone the Repository
 ```bash
@@ -153,7 +148,6 @@ npm start
 | `POST` | `/explain/anfis` | ANFIS per-rule firing strengths |
 | `GET`  | `/model-info` | Architecture metadata for all 3 models |
 | `GET`  | `/live/<city>` | Real-time AQI from WAQI API |
-| `GET`  | `/forecast/<city>` | 24-hour AQI forecast |
 
 **Example `/predict` request:**
 ```json
@@ -191,7 +185,6 @@ npm start
 | **Fuzzy Explainer** | Live Gaussian MF curves with current-input marker + rule table |
 | **NN Explainer** | SVG network diagram + training metrics (RMSE, R²) |
 | **ANFIS Explainer** | 5-layer architecture diagram + rule firing strength chart |
-| **24h Forecast** | City-selectable MLP time-series forecast with hourly breakdown |
 | **Live Data** | One-click fill from real WAQI sensor data |
 | **Health Advisory** | Category-specific health tips and pollutant level badges |
 
@@ -204,9 +197,8 @@ npm start
 | File | Used For | Size |
 |---|---|---|
 | `city_day.csv` | Model training (PM2.5, PM10, NO2, CO → AQI) | ~2.5 MB |
-| `city_hour.csv` | Hourly time-series forecasting | ~65 MB |
 
-> **Note**: These files are excluded from the repository due to size. Download from Kaggle and place in `data/`.
+> **Note**: This file is excluded from the repository due to size. Download from Kaggle and place in `data/`.
 
 ---
 
@@ -220,7 +212,6 @@ npm start
 | Backpropagation | `model.py` → `NNModel` + `NNPanel.js` |
 | Hybrid Learning (LSE + GD) | `model.py` → `ANFIS.train()` + `ANFISPanel.js` |
 | Sugeno-type Consequent | `model.py` → `ANFIS._l4l5_output()` |
-| Lag-based Time Series | `time_series.py` → `TimeSeriesForecaster` |
 
 ---
 

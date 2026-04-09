@@ -33,41 +33,44 @@ class FuzzyModel:
     # AQI singleton values for each linguistic level
     # Calibrated to centre of each Indian AQI band
     AQI_SINGLETONS = {
-        'Low':    30,    # Good (0–50)
-        'Medium': 100,   # Satisfactory / Moderate
-        'High':   220,   # Unhealthy / Very Unhealthy
+        'Good':         25,    # (0-50)
+        'Satisfactory': 75,    # (51-100)
+        'Moderate':     150,   # (101-200)
+        'Poor':         250,   # (201-300)
+        'Severe':       350,   # (301-400+)
     }
 
     def __init__(self):
         # Default centres & sigmas — evenly spaced; overwritten by calibrate()
-        self._centers = np.tile([0.15, 0.50, 0.85], (4, 1))   # (4, 3)
-        self._sigmas  = np.ones((4, 3)) * 0.18
+        self._centers = np.tile([0.1, 0.3, 0.5, 0.7, 0.9], (4, 1))   # (4, 5)
+        self._sigmas  = np.ones((4, 5)) * 0.1
 
     # ── Calibration ───────────────────────────────────────────────────────────
 
     def calibrate(self, X_scaled):
         """
         Set MF centres and widths from actual training-data distribution.
-        Uses 25th and 75th percentiles so Low/Medium/High zones cover
-        the real spread of each pollutant in the dataset.
+        Uses percentiles so boundaries cover the real spread of each pollutant.
         """
-        p25 = np.percentile(X_scaled, 25, axis=0)  # (4,)
-        p75 = np.percentile(X_scaled, 75, axis=0)  # (4,)
+        p_vals = [np.percentile(X_scaled, p, axis=0) for p in [20, 40, 60, 80]]
 
         for i in range(4):
-            lo, hi = float(p25[i]), float(p75[i])
-            # Centres: mid-point of each zone [0,lo], [lo,hi], [hi,1]
+            bounds = [float(p[i]) for p in p_vals]
+            min_val, max_val = float(X_scaled[:, i].min()), float(X_scaled[:, i].max())
+
             self._centers[i] = [
-                lo / 2,
-                (lo + hi) / 2,
-                (hi + 1.0) / 2,
+                (min_val + bounds[0]) / 2,
+                (bounds[0] + bounds[1]) / 2,
+                (bounds[1] + bounds[2]) / 2,
+                (bounds[2] + bounds[3]) / 2,
+                (bounds[3] + max_val) / 2,
             ]
-            # Sigmas: proportional to zone width (min 0.05 to avoid collapse)
-            self._sigmas[i] = [
-                max(lo / 2,          0.05),
-                max((hi - lo) / 2,   0.05),
-                max((1.0 - hi) / 2,  0.05),
-            ]
+            
+            # Distance between centers as sigma width
+            for j in range(5):
+                left_c = self._centers[i][max(0, j-1)]
+                right_c = self._centers[i][min(4, j+1)]
+                self._sigmas[i][j] = max(abs(right_c - left_c) / 3.0, 0.1)
 
     # ── MF helpers ────────────────────────────────────────────────────────────
 
@@ -76,8 +79,8 @@ class FuzzyModel:
         return float(np.exp(-((x - c) ** 2) / (2 * sigma ** 2)))
 
     def _memberships(self, xi, i):
-        """Low / Medium / High membership for feature i at normalised value xi."""
-        labels = ['Low', 'Medium', 'High']
+        """Membership for feature i at normalized value xi."""
+        labels = ['Good', 'Satisfactory', 'Moderate', 'Poor', 'Severe']
         return {
             lbl: self._gaussian(xi, self._centers[i][j], self._sigmas[i][j])
             for j, lbl in enumerate(labels)
@@ -90,7 +93,7 @@ class FuzzyModel:
         mu  = self._memberships(xi, i)
         num = sum(mu[lbl] * self.AQI_SINGLETONS[lbl] for lbl in mu)
         den = sum(mu.values())
-        return num / den if den > 1e-9 else self.AQI_SINGLETONS['Low']
+        return num / den if den > 1e-9 else self.AQI_SINGLETONS['Good']
 
     def predict(self, x):
         """Final AQI = max of 4 per-pollutant sub-AQIs."""
@@ -114,16 +117,18 @@ class FuzzyModel:
             'dominant_pollutant': dominant,
             'mf_centers': {
                 self.FEATURE_NAMES[i]: {
-                    'Low':    round(float(self._centers[i][0]), 4),
-                    'Medium': round(float(self._centers[i][1]), 4),
-                    'High':   round(float(self._centers[i][2]), 4),
+                    'Good':   round(float(self._centers[i][0]), 4),
+                    'Sat':    round(float(self._centers[i][1]), 4),
+                    'Mod':    round(float(self._centers[i][2]), 4),
+                    'Poor':   round(float(self._centers[i][3]), 4),
+                    'Severe': round(float(self._centers[i][4]), 4),
                 }
                 for i in range(4)
             },
         }
 
     def get_mf_params(self):
-        labels = ['Low', 'Medium', 'High']
+        labels = ['Good', 'Satisfactory', 'Moderate', 'Poor', 'Severe']
         return {
             self.FEATURE_NAMES[i]: {
                 lbl: {
@@ -152,17 +157,18 @@ class NNModel:
 
     def __init__(self):
         self.model = MLPRegressor(
-            hidden_layer_sizes=(64, 32),
+            hidden_layer_sizes=(256, 128, 64),
             activation='relu',
             solver='adam',
-            max_iter=500,
+            max_iter=1000,
+            learning_rate_init=0.002,
             random_state=42,
             early_stopping=True,
             validation_fraction=0.1,
         )
         self.architecture = {
             'input_size':    4,
-            'hidden_layers': [64, 32],
+            'hidden_layers': [256, 128, 64],
             'output_size':   1,
             'activation':    'ReLU',
             'optimizer':     'Adam',
@@ -270,10 +276,19 @@ class ANFIS:
     def train(self, X, y, epochs=60, lr=0.005):
         """
         Hybrid learning:
+          0. KMeans clustering for premise (rule centers) initialization
           1. Forward pass  → LSE solves consequent params analytically
           2. Backward pass → gradient descent updates premise params (c, σ)
         """
+        from sklearn.cluster import KMeans
         N = len(X)
+        
+        # Use KMeans to set the initial centers to actual dense data regions
+        print(f"  [ANFIS] Running KMeans clustering for {self.n_rules} rules...")
+        kmeans = KMeans(n_clusters=self.n_rules, random_state=42, n_init='auto')
+        kmeans.fit(X)
+        self.centers = kmeans.cluster_centers_
+
         for epoch in range(epochs):
             mu, w, w_bar, _ = self._forward_batch(X)
 

@@ -7,7 +7,6 @@ import ModelComparison from './components/ModelComparison';
 import FuzzyPanel     from './components/FuzzyPanel';
 import NNPanel        from './components/NNPanel';
 import ANFISPanel     from './components/ANFISPanel';
-import ForecastPanel  from './components/ForecastPanel';
 
 const API = 'http://localhost:5000';
 
@@ -16,7 +15,6 @@ const TABS = [
   { id: 'fuzzy',    label: 'Fuzzy Logic',   icon: '🔵', dot: '#00d2ff' },
   { id: 'nn',       label: 'Neural Net',    icon: '🟣', dot: '#a855f7' },
   { id: 'anfis',    label: 'ANFIS',         icon: '🟠', dot: '#ff6b35' },
-  { id: 'forecast', label: 'Forecast',      icon: '📈', dot: '#22c55e' },
 ];
 
 export default function App() {
@@ -209,12 +207,6 @@ export default function App() {
           {tab === 'anfis' && (
             <div className="fade-in">
               <ANFISPanel anfisEx={anfisEx} modelInfo={modelInfo} result={result} />
-            </div>
-          )}
-
-          {tab === 'forecast' && (
-            <div className="fade-in">
-              <ForecastPanel api={API} />
             </div>
           )}
         </main>

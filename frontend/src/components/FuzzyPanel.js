@@ -15,8 +15,8 @@ function gaussian(x, c, sigma) {
 const X_RANGE = Array.from({ length: 100 }, (_, i) => i / 99);
 
 function MFChart({ title, mfParams, currentVal, accentColor }) {
-  const LABEL_ORDER = ['Low', 'Medium', 'High'];
-  const COLORS      = ['#22c55e', '#eab308', '#ef4444'];
+  const LABEL_ORDER = ['Good', 'Satisfactory', 'Moderate', 'Poor', 'Severe'];
+  const COLORS      = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#7c3aed'];
 
   const datasets = LABEL_ORDER.map((lbl, idx) => {
     const p   = mfParams[lbl];
@@ -118,9 +118,9 @@ export default function FuzzyPanel({ fuzzyEx, modelInfo, form }) {
         <div className="section-title" style={{ color: '#00d2ff' }}>Fuzzy Logic System</div>
       </div>
       <div className="section-subtitle">
-        Improved Mamdani FIS — uses all 4 pollutants. Each pollutant independently infers a
-        sub-AQI through calibrated Gaussian MFs. Final AQI = max(sub-AQIs), mirroring the
-        real AQI standard where the dominant pollutant determines the overall index.
+        Mamdani FIS Architecture — processes all 4 targeted pollutants. Each pollutant independently infers a
+        sub-AQI via calibrated Gaussian MFs. Final AQI = max(sub-AQIs), aligning with the
+        environmental regulatory standards where the dominant pollutant establishes the overall index.
       </div>
 
       {/* How it works */}
@@ -165,6 +165,17 @@ export default function FuzzyPanel({ fuzzyEx, modelInfo, form }) {
               Dominant: {fuzzyEx.dominant_pollutant}
             </div>
           </div>
+          
+          {/* Explainable AI English Reasoning */}
+          <div style={{
+            background: 'var(--bg-base)', padding: '12px 14px', borderRadius: 8, 
+            marginBottom: 16, borderLeft: `3px solid ${aqiColor(fuzzyEx.sub_aqis[fuzzyEx.dominant_pollutant])}`,
+            fontSize: 13, color: 'var(--text-primary)', fontStyle: 'italic',
+            lineHeight: 1.5
+          }}>
+            "The final AQI is determined to be <strong>{aqiCategory(fuzzyEx.sub_aqis[fuzzyEx.dominant_pollutant])} ({Math.round(fuzzyEx.sub_aqis[fuzzyEx.dominant_pollutant])})</strong> 
+            because <strong style={{color: '#00d2ff'}}>{fuzzyEx.dominant_pollutant}</strong> is the most critical pollutant right now, dominating the index calculations."
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
             {FEATURES.map(f => {
               const val       = fuzzyEx.sub_aqis[f];
@@ -193,7 +204,7 @@ export default function FuzzyPanel({ fuzzyEx, modelInfo, form }) {
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
             {FEATURES.map(f => {
               const mu = fuzzyEx.memberships[f];
-              const COLORS = { Low: '#22c55e', Medium: '#eab308', High: '#ef4444' };
+              const COLORS = { Good: '#22c55e', Satisfactory: '#eab308', Moderate: '#f97316', Poor: '#ef4444', Severe: '#7c3aed', Low: '#22c55e', Medium: '#eab308', High: '#ef4444' };
               return (
                 <div key={f} style={{ background: 'var(--bg-base)', borderRadius: 8, padding: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--text-secondary)' }}>

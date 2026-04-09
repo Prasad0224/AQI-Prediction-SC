@@ -1,6 +1,5 @@
 import numpy as np
 import pickle
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 
@@ -19,18 +18,22 @@ print(f"      Samples: {len(df)}")
 X = df[FEATURES].values
 y = df[TARGET].values
 
-# ── Scale features ────────────────────────────────────────────────────────
+# ── Train / test split ────────────────────────────────────────────────────
+X_train_raw, X_test_raw, y_train_raw, y_test_raw = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# ── Scale features (Fitted strictly on Train to prevent leakage) ──────────
+from sklearn.preprocessing import MinMaxScaler
 x_scaler = MinMaxScaler()
-X_scaled  = x_scaler.fit_transform(X)
+X_tr = x_scaler.fit_transform(X_train_raw)
+X_te = x_scaler.transform(X_test_raw)
 
 # ── Scale target (save scaler for de-normalisation in API) ────────────────
-y_scaler  = MinMaxScaler()
-y_scaled  = y_scaler.fit_transform(y.reshape(-1, 1)).ravel()
+y_scaler = MinMaxScaler()
+y_tr = y_scaler.fit_transform(y_train_raw.reshape(-1, 1)).ravel()
+y_te = y_scaler.transform(y_test_raw.reshape(-1, 1)).ravel()
 
-# ── Train / test split ────────────────────────────────────────────────────
-X_tr, X_te, y_tr, y_te = train_test_split(
-    X_scaled, y_scaled, test_size=0.2, random_state=42
-)
 print(f"      Train: {len(X_tr)}  |  Test: {len(X_te)}")
 
 # ── 1) Neural Network ─────────────────────────────────────────────────────
@@ -55,12 +58,12 @@ print(f"      R²         : {anfis_r2:.4f}")
 # ── 3) Fuzzy Logic ────────────────────────────────────────────────────────
 print("\n[4/5] Evaluating Fuzzy Logic (Mamdani, 4 inputs, calibrated MFs)...")
 fuzzy = FuzzyModel()
-# Calibrate MF centres from actual training-data percentiles (full dataset)
-fuzzy.calibrate(X_scaled)
-print(f"      MF centres calibrated from {len(X_scaled)} samples")
+# Calibrate MF centres strictly from train data to prevent test distribution leakage
+fuzzy.calibrate(X_tr)
+print(f"      MF centres calibrated from {len(X_tr)} train samples")
 
 # Fuzzy outputs real AQI — compare against de-normalised y_te for fair metrics
-y_te_real        = y_scaler.inverse_transform(y_te.reshape(-1, 1)).ravel()
+y_te_real        = y_test_raw.ravel()
 y_hat_fuzzy      = np.array([fuzzy.predict(x) for x in X_te])
 fuzzy_rmse       = float(np.sqrt(mean_squared_error(y_te_real, y_hat_fuzzy)))
 fuzzy_r2         = float(r2_score(y_te_real, y_hat_fuzzy))

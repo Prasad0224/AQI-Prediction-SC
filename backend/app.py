@@ -5,7 +5,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from live_data import get_live_data
-from time_series import TimeSeriesForecaster
 
 app = Flask(__name__)
 CORS(app)
@@ -22,10 +21,6 @@ except FileNotFoundError:
     print("⚠️  models.pkl not found — run train.py first")
     anfis = nn = fuzzy = x_scaler = y_scaler = None
     MODELS_READY = False
-
-# ── Time-series forecaster (lazy, cached) ─────────────────────────────────────
-ts = TimeSeriesForecaster()
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _require_models():
@@ -122,13 +117,6 @@ def model_info():
 @app.route("/live/<city>")
 def live(city):
     return jsonify(get_live_data(city))
-
-
-# ── /forecast/<city> ─────────────────────────────────────────────────────────
-@app.route("/forecast/<city>")
-def forecast(city):
-    preds = ts.predict(city, steps=24)
-    return jsonify({"forecast": preds, "city": city, "steps": len(preds)})
 
 
 if __name__ == "__main__":
